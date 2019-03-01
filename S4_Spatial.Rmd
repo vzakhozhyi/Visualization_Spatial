@@ -1,0 +1,609 @@
+
+<br> 
+<center><img src="http://i.imgur.com/sSaOozN.png" width="500"></center>
+
+## Course: Visual Analytics for Policy and Management
+
+### Prof. José Manuel Magallanes, PhD 
+
+_____
+<a id='part1'></a>
+
+# Session 4: [Spatial Data](https://github.com/EvansDataScience/Visualization_Spatial)
+
+_____
+
+
+Let's work with the data on contributions to Candidates and Political Committees in Washington State. 
+
+The WA [portal](https://data.wa.gov/) for OpenData has this data on this [website](https://data.wa.gov/Politics/Contributions-to-Candidates-and-Political-Committe/kv7h-kjye).
+
+
+
+```{r, eval=FALSE}
+link='https://github.com/EvansDataScience/data/raw/master/contriWA.RData'
+#getting the data TABLE from the file in the cloud:
+load(file=url(link))
+```
+
+
+This is what we have:
+
+```{r, eval=FALSE}
+str(contriWA,width = 60, strict.width = 'cut')
+```
+
+The data is per year, so let's check the years available:
+
+```{r, eval=FALSE}
+sort(unique(contriWA$election_year))
+```
+
+
+
+
+## Getting the Map
+
+Maps come in different formats. The most common is the **shapefile** which is in fact a collection of files. That makes it more complicated if we want to read the map from GitHub. Then, to keep using GitHub to store maps, you should keep all the shapefiles into a zipped folder.
+
+```{r, eval=FALSE}
+# link to zipped folder
+zippedSHP= "https://github.com/EvansDataScience/data/raw/master/WAzips.zip"
+
+```
+
+The strategy in R will be to download the compressed folder into your computer. Then, use the following code to unzip it. 
+
+**Make sure to set the current folder as the working directory**.
+
+```{r, eval=FALSE}
+library(utils)
+temp=tempfile()
+download.file(zippedSHP, temp)
+unzip(temp)
+```
+
+To know what shapefiles are now in your directory:
+
+```{r, eval=FALSE}
+(maps=list.files(pattern = 'shp'))
+```
+
+You select which map from the object _maps_ you need:
+
+```{r, eval=FALSE, results='hide', warning=FALSE,message=FALSE}
+# notice the parameters use in the chunk!!
+
+library(rgdal)
+wazipMap <- readOGR("SAEP_ZIP_Code_Tabulation_Areas.shp",stringsAsFactors=F) 
+```
+
+We have a map:
+
+```{r, eval=FALSE}
+plot(wazipMap)
+```
+
+You can control some nice details:
+```{r, eval=FALSE}
+plot(wazipMap,
+     border='blue',#color of lines
+     col='yellow', #color of polygon
+     lwd=0.1) #thickness
+```
+
+
+## Plotting coordinates:
+
+The dataframe _contriWA_ has columns with coordinates, let's turn that data frame into a _spatial point data frame_, while making sure it has the same  coordinate system as our map:
+
+```{r, eval=FALSE, warning=FALSE}
+library(raster)
+
+mapCRS=crs(wazipMap) # projection of our map
+
+contriWA_geo <- SpatialPointsDataFrame(contriWA[,c(10:9)], # Lon/LAT
+                    contriWA,    #the original data frame
+                    proj4string = mapCRS)   # assign a CRS of map 
+
+```
+
+Our new spatial _points_ dataframe looks the same:
+```{r, eval=FALSE}
+names(contriWA_geo)
+```
+
+But it is not a simple data frame:
+
+```{r, eval=FALSE}
+class(contriWA_geo)
+```
+
+You can see the geographical details with this:
+
+```{r, eval=FALSE, warning=FALSE}
+library(tmaptools)
+get_proj4(mapCRS)
+```
+
+Now, plot the new map (select the right character for the [point](http://www.endmemo.com/program/R/pchsymbols.php)) on top of our WA state map:
+
+```{r, eval=FALSE}
+plot(wazipMap,border='blue',col='yellow',lwd=0.1)
+
+# NEW LAYER ON TOP
+plot(contriWA_geo, 
+     pch=20, #type of character (see link above)
+     col = "red", 
+     cex = .6, # shrinking
+     add=T) # VERY important
+```
+
+You may want to alter the order of the layers, and using just the whole state without internal divisions:
+
+```{r, eval=FALSE,warning=FALSE}
+library(rmapshaper)
+# This will make just a border of the state
+baseMap <- ms_dissolve(wazipMap)
+```
+
+Now, see the result, but this time the dissolved map will be on top:
+
+```{r, eval=FALSE}
+plot(contriWA_geo, pch=20, col = "pink", cex = .3) 
+# add on top
+plot(baseMap,border='black',col=NA,lwd=1,add=T) 
+
+```
+
+We could use **tmap** instead, which looks like ggplot:
+
+```{r, eval=FALSE, warning=FALSE, message=FALSE}
+library(tmap)
+
+creditsText="EPSG: 4326\nProj=longlat\ndatum=WGS84"
+
+tm_shape(baseMap) + tm_polygons()+
+    #ALPHA 0 is total transparency
+    tm_shape(contriWA_geo) + tm_dots(size = 0.1,col = 'red',alpha=0.5) + 
+    tm_layout(main.title = "Points",main.title.position = 'center') +
+    tm_compass(position = c('left','TOP'),type = 'arrow')+
+    tm_scale_bar(position=c("RIGHT", "BOTTOM"),width = 0.2)+
+    tm_credits(creditsText, position=c("left", "bottom"))
+
+```
+
+The previous map included the formal elements maps should have.
+
+Currently, it is very usual to use interactive maps. In that situation, **Leaflet** is a good option:
+
+```{r, eval=FALSE,warning=FALSE}
+library(leaflet)
+
+leaflet(contriWA_geo) %>% 
+    addTiles() %>% 
+    addCircleMarkers(clusterOptions = markerClusterOptions())
+```
+
+
+
+
+
+## Adding information from data frame
+
+
+When you have a way to organize you data by a row that represents a **geographical unit**, you can plot your data on a map. However, in the current format, each row represents a contribution; we do not need that, we need a data frame where each row is ZIP code, and the amount tells us, for example, the average contribution generated in that location. This is an **aggregation** process:
+
+```{r, eval=FALSE}
+# similar and saving space:
+columnToAggregate=contriWA$amount
+
+# new ROW:
+newROW_UNIT=list(zipCode=contriWA$contributor_zip)
+
+WA_zip_contri=with(contriWA, 
+                   aggregate(columnToAggregate, 
+                             newROW_UNIT, 
+                             mean)) #mean per zip code 
+```
+
+
+
+
+```{r, eval=FALSE}
+#see result:
+head(WA_zip_contri)
+```
+
+
+``````{r, eval=FALSE}
+names(WA_zip_contri)[2]='AVE_Amount'
+```
+
+This data frame has the average of contributions for every zip code since the election year 2009, including the elections up to 2023.
+
+Our map has also interesting information (check the definitions [here](https://www.ofm.wa.gov/sites/default/files/public/legacy/pop/geographic/metadata/zcta5.html#5)):
+
+```{r, eval=FALSE}
+names(wazipMap)
+```
+
+
+
+The column with the zip code has the name ZCTA5CE10, let's check its data type:
+```{r, eval=FALSE}
+str(wazipMap$ZCTA5CE10)
+```
+
+
+Let's turn _ZCTA5CE10_ into a number, to be in the same type as our data frame:
+
+```{r, eval=FALSE}
+wazipMap$ZCTA5CE10=as.numeric(wazipMap$ZCTA5CE10)
+```
+
+
+Having a common columns, we can merge. 
+
+As the zip codes in each are under different column names, I tell the _merge_ function what columns to use:
+
+```{r, eval=FALSE}
+layerContrib=merge(wazipMap,WA_zip_contri, by.x='ZCTA5CE10', by.y='zipCode',all.x=F)
+```
+
+There is a new map: *layerContrib*.
+
+
+We will plot the average amounts contributed, which will be organised into 5 quantiles. Let's follow these steps:
+
+1. Install and load the necessary packages to manage color and divisions:
+
+```{r, eval=FALSE,warning=FALSE,message=FALSE,results='hide'}
+library(RColorBrewer)
+library(classInt)
+```
+
+
+2. Define the variable to plot:
+```{r, eval=FALSE}
+varToPLot=layerContrib$AVE_Amount
+```
+
+
+3. Get colors and intervals (you can choose palettes from [here](http://colorbrewer2.org/)). Notice we are choosing a particular [classification method](https://www.axismaps.com/guide/data/data-classification/) known as _quantile classification_: 
+
+```{r, eval=FALSE}
+numberOfClasses = 5
+
+colorForScale='YlGnBu'
+
+colors = brewer.pal(numberOfClasses, colorForScale)
+
+intervals <- classIntervals(varToPLot, numberOfClasses, 
+                            style = "quantile",
+                            dataPrecision=2)
+
+colorPallette <- findColours(intervals, colors)
+```
+
+
+4. Plot the choropleth:
+
+```{r, eval=FALSE}
+
+legendText="intervals"
+shrinkLegend=0.4
+title="Average Contribution to elections in WA (2009-2023)"
+
+# first the ORIGINAL to signal missing values:
+plot(baseMap,col='red',main=title) 
+
+# now the info on contributions
+plot(layerContrib, col = colorPallette,border=NA,add=T) #add
+
+# this uses all previous information
+legend('topright', 
+       legend = names(attr(colorPallette, "table")), #values
+       fill = attr(colorPallette, "palette"), #colors
+       cex = shrinkLegend, #size 
+       bty = "n", # no box
+       title=legendText)
+```
+
+Again, this is how you can do it with tmap:
+
+```{r, eval=FALSE}
+
+
+base= tm_shape(baseMap) + tm_polygons()
+layer1= base +  tm_shape(layerContrib) + 
+                tm_polygons("AVE_Amount", style="quantile",n=5,
+                            title="Contributions", # title of legend
+                            palette=colorForScale) 
+fullMap= layer1 + tm_compass(position = c('left','TOP'),type = 'arrow') +
+                  tm_scale_bar(position=c("RIGHT", "BOTTOM"),width = 0.2)+
+                  tm_credits(creditsText, position=c("left", "bottom")) 
+
+fullMap
+```
+
+We need to adjust the elements:
+```{r, eval=FALSE}
+fullMap +  tm_layout(main.title = "Choropleth",
+                     main.title.position = 'center',
+                     legend.position = c('RIGHT','center'),
+                                    #bottom,left,top,right
+                     inner.margins=c(0.1,0,0.1,0.2)) 
+    
+```
+
+
+For sure, you can use leaflet:
+
+```{r, eval=FALSE}
+# function for COLORING quantiles in leaflet
+paletteFun=colorQuantile("YlGnBu", 
+                         varToPLot,
+                         n = 5)
+
+# the base map
+base_map = leaflet(baseMap) %>% addPolygons(weight = 3,color = 'red')
+
+final = base_map %>%
+         addPolygons(data=layerContrib,
+                     weight = 1, #thickness of border
+                     opacity =  1, # # the closer to 0 the more transparent
+                     fillOpacity = 0.7, # color brigthness
+                     fillColor = ~paletteFun(AVE_Amount)) # coloring
+
+final
+```
+
+You must add a legend:
+```{r, eval=FALSE}
+final %>% addLegend(data=layerContrib,
+                    "bottomright",
+                    pal = paletteFun, 
+                    values = ~AVE_Amount,
+                    title = "Contributions",
+                    opacity = 1) 
+
+```
+
+The legend shows just percents, to get the actual intervals, you need some hard work:
+
+
+```{r, eval=FALSE}
+final %>% addLegend(data=layerContrib,"bottomright", pal = paletteFun, 
+          values = ~AVE_Amount,title = "Contributions",
+          opacity = 1,
+          # changes:
+          labFormat = function(type="quantile", cuts, p) {
+              n = length(cuts) # how many
+              lower=round(cuts[-n],2) # intervals
+              upper=round(cuts[-1],2)
+              cuts = paste0(lower, " - ", upper) # new cuts
+              }
+          
+     )
+
+
+```
+
+
+
+## Plotting categories
+
+Imagine you need the botton and top decile:
+
+```{r, eval=FALSE}
+quantile(layerContrib$AVE_Amount, c(.1,.9))
+```
+
+
+The you reuse the same code, but altering some details:
+
+4. Plot
+```{r, eval=FALSE}
+#filters:
+top10=quantile(layerContrib$AVE_Amount, c(.9))
+bot10=quantile(layerContrib$AVE_Amount, c(.1))
+
+#newMaps!
+mapBot=layerContrib[layerContrib$AVE_Amount<=bot10,]
+mapTop=layerContrib[layerContrib$AVE_Amount>=top10,]
+    
+legendText="Areas to watch"
+shrinkLegend=0.4
+title="Top and Botton Average Contribution to elections in WA (2009-2023)"
+
+# base Layer
+plot(baseMap,col='white',main=title) # original
+
+# Layer with top 
+plot(mapTop, 
+     col = 'green', # NO PALLETTE
+     border='grey',add=T) #add
+
+# Layer with bottom
+plot(mapBot, 
+     col = 'red', # NO PALLETTE
+     border='grey',add=T) #add
+
+# this uses all previous information
+legend('topright', 
+       legend = c('top','bottom'), #values
+       fill = c('green','red'), #colors
+       cex = shrinkLegend, #size 
+       bty = "n", # no box
+       title=legendText)
+```
+
+
+The version in tmap:
+
+```{r, eval=FALSE}
+base= tm_shape(baseMap) + tm_polygons()
+layer_1= base +  tm_shape(mapTop) + 
+                tm_polygons(col = 'green',border.col = NULL) 
+
+layer_1_2= layer_1 + tm_shape(mapBot) + 
+                tm_polygons(col = 'red',border.col = NULL) 
+fullMap= layer_1_2 + tm_compass(position = c('left','TOP'),type = 'arrow') +
+                  tm_scale_bar(position=c("RIGHT", "BOTTOM"),width = 0.2)+
+                  tm_credits(creditsText, position=c("left", "bottom"))
+
+fullMap
+```
+
+Now we add a legend:
+
+```{r, eval=FALSE}
+fullMap_leg= fullMap + tm_add_legend(type="fill",
+                                     labels=c('good','bad'),
+                                     col=c('green','red'),
+                                     border.col=NA,
+                                     title='to watch')
+fullMap_leg
+```
+
+The default position caused problems, we can solve it like this:
+
+```{r, eval=FALSE}
+fullMap_leg + tm_layout(main.title = "Highlights",
+                        
+                        main.title.position = 'center',
+                        legend.position = c('RIGHT','center'),
+                                    #bottom,left,top,right
+                        inner.margins=c(0.1,0,0.1,0.2)) 
+```
+
+And a version in leaflet:
+
+```{r, eval=FALSE}
+library(leaflet)
+
+
+base= leaflet() %>% addProviderTiles("CartoDB.Positron") 
+layer1= base %>%
+        addPolygons(data=mapBot,color='blue',fillOpacity = 1,stroke = F,
+                    group = "Bottom")
+layer_1_2= layer1%>%addPolygons(data=mapTop,color="red",fillOpacity = 1,stroke = F,
+                              group = "Top")
+
+layer_1_2
+```
+
+Any basic leaflet map allows interaction, but it is tricky to come back to the original situation. This is how you can do it by adding a button (check icons [here](https://fontawesome.com/icons/home?style=solid):
+
+```{r, eval=FALSE}
+# trick: it tell the 'center' of the state and the zoom level
+textFun="function(btn, map){map.setView([47.751076, -120.740135], 7)}"
+
+
+final= layer_1_2 %>%
+    
+    # adding the button
+    addEasyButton(
+        easyButton(icon="fa-home", # a symbol
+                   title="Zoom to Level 1",
+                   onClick=JS(textFun)))
+
+final
+```
+
+We can use an interactive legend:
+
+```{r, eval=FALSE}
+final %>% addLayersControl(
+        overlayGroups = c("Top", "Bottom"),
+        options = layersControlOptions(collapsed = FALSE))
+```
+
+
+
+
+## Facetting
+
+
+
+If needed, you can make use of facets. 
+Let me create a more complex data frame:
+
+```{r, eval=FALSE}
+# similar and saving space:
+
+columnToAggregate =contriWA$amount
+newROW_UNITS=list(zipCode=contriWA$contributor_zip,
+        year=contriWA$election_year)
+
+WA_zip_contri_Y=with(contriWA,
+                     aggregate(columnToAggregate, 
+                               newROW_UNITS, 
+                               mean))
+
+names(WA_zip_contri_Y)[3]='AVE_Amount'
+```
+
+```{r, eval=FALSE}
+#see result:
+head(WA_zip_contri_Y)
+```
+
+This is a long format data frame, let me turn it into a wide format:
+
+
+```{r, eval=FALSE}
+WA_zip_contri_Y=reshape(WA_zip_contri_Y, idvar = "zipCode", timevar = "year", direction = "wide")
+
+#result
+head(WA_zip_contri_Y)
+```
+
+
+
+
+Now, we have one zip per row, but several years as columns. We can safely merge:
+
+
+```{r, eval=FALSE,warning=FALSE, message=FALSE, results='hide'}
+library(dplyr)
+layerContrib_Y=merge(wazipMap,WA_zip_contri_Y,by.x = "ZCTA5CE10", by.y ="zipCode")
+```
+
+
+Let me get the positions of the averages per year:
+```{r, eval=FALSE}
+# all the questions with this: "H_In_"
+positions=grep("AVE_", names(layerContrib_Y) ) # ^ means starts with
+positions
+```
+
+Then, I can get the names:
+
+```{r, eval=FALSE}
+# the 'head' of only those:
+aveVars=names(layerContrib_Y[,c(positions)])
+aveVars
+```
+
+I will use some years:
+
+```{r, eval=FALSE}
+varsForFacet=aveVars[c(1:9)] # subsettin years
+
+tm_shape(layerContrib_Y) +
+    tm_polygons(varsForFacet,
+                border.col = NULL,
+                palette=colorForScale) +
+    tm_facets(ncol = 3)+
+    tm_layout(inner.margins=c(0.1,0.3,0.1,0),
+              main.title = "Highlights",
+              main.title.position = 'center') 
+```
+
+
+
+____
+
+* [Go to Course schedule](https://evansdatascience.github.io/GovernanceAnalytics/)
