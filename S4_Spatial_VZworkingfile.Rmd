@@ -1,4 +1,6 @@
 
+
+
 <br> 
 <center><img src="http://i.imgur.com/sSaOozN.png" width="500"></center>
 
@@ -71,8 +73,9 @@ To know what shapefiles are now in your directory:
 
 You select which map from the object _maps_ you need:
 
-```{r, eval=FALSE, results='hide', warning=FALSE,message=FALSE}
+```{r, eval=FALSE, results='hide', warning=FALSE, message=FALSE}
 # notice the parameters use in the chunk!!
+#results='hide', warning=FALSE, message=FALSE - to avoid showing all those hidden messages
 
 library(rgdal)
 wazipMap <- readOGR("SAEP_ZIP_Code_Tabulation_Areas.shp",stringsAsFactors=F) 
@@ -136,7 +139,7 @@ plot(contriWA_geo,
      pch=20, #type of character (see link above)
      col = "red", 
      cex = .6, # shrinking
-     add=T) # VERY important
+     add=T) # VERY important should be TRUE - add on top of the original 
 ```
 
 You may want to alter the order of the layers, and using just the whole state without internal divisions:
@@ -144,7 +147,7 @@ You may want to alter the order of the layers, and using just the whole state wi
 ```{r, eval=FALSE,warning=FALSE}
 library(rmapshaper)
 # This will make just a border of the state
-baseMap <- ms_dissolve(wazipMap)
+baseMap <- ms_dissolve(wazipMap) #dissolve - delete all the boarders inside the boarders
 ```
 
 Now, see the result, but this time the dissolved map will be on top:
@@ -153,7 +156,6 @@ Now, see the result, but this time the dissolved map will be on top:
 plot(contriWA_geo, pch=20, col = "pink", cex = .3) 
 # add on top
 plot(baseMap,border='black',col=NA,lwd=1,add=T) 
-
 ```
 
 We could use **tmap** instead, which looks like ggplot:
@@ -163,13 +165,12 @@ library(tmap)
 
 creditsText="EPSG: 4326\nProj=longlat\ndatum=WGS84"
 
-tm_shape(baseMap) + tm_polygons()+
-    #ALPHA 0 is total transparency
-    tm_shape(contriWA_geo) + tm_dots(size = 0.1,col = 'red',alpha=0.5) + 
-    tm_layout(main.title = "Points",main.title.position = 'center') +
-    tm_compass(position = c('left','TOP'),type = 'arrow')+
-    tm_scale_bar(position=c("RIGHT", "BOTTOM"),width = 0.2)+
-    tm_credits(creditsText, position=c("left", "bottom"))
+tm_shape(baseMap) + tm_polygons()+    #calling a layer and some components; file and then polygons from original file
+    tm_shape(contriWA_geo) + tm_dots(size = 0.1,col = 'red',alpha=0.5) +    #calling file and then points from spatial data file; #ALPHA 0 is total transparency
+    tm_layout(main.title = "Points",main.title.position = 'center') +       #like themes in ggplot
+    tm_compass(position = c('left','TOP'),type = 'arrow')+                  #geography elements
+    tm_scale_bar(position=c("RIGHT", "BOTTOM"),width = 0.2)+                #geography elements
+    tm_credits(creditsText, position=c("left", "bottom"))                   #geography elements
 
 ```
 
@@ -216,7 +217,7 @@ head(WA_zip_contri)
 ```
 
 
-``````{r, eval=FALSE}
+```{r, eval=FALSE}
 names(WA_zip_contri)[2]='AVE_Amount'
 ```
 
